@@ -56,32 +56,32 @@ def AddWsg(plant,
     if welded:
         if sphere:
             gripper = parser.AddModelFromFile(
-                FindResource("models/schunk_wsg_50_welded_fingers_sphere.sdf"),
-                "gripper")
+                FindResource('models/schunk_wsg_50_welded_fingers_sphere.sdf'),
+                'gripper')
         else:
             gripper = parser.AddModelFromFile(
-                FindResource("models/schunk_wsg_50_welded_fingers.sdf"),
-                "gripper")
+                FindResource('models/schunk_wsg_50_welded_fingers.sdf'),
+                'gripper')
     else:
         gripper = parser.AddModelFromFile(
             FindResourceOrThrow(
-                "drake/manipulation/models/"
-                "wsg_50_description/sdf/schunk_wsg_50_with_tip.sdf"))
+                'drake/manipulation/models/'
+                'wsg_50_description/sdf/schunk_wsg_50_with_tip.sdf'))
 
     X_7G = RigidTransform(RollPitchYaw(np.pi / 2.0, 0, np.pi / 2.0), [0, 0, 0.114])
-    plant.WeldFrames(plant.GetFrameByName("iiwa_link_7", iiwa_model_instance),
-                     plant.GetFrameByName("body", gripper), X_7G)
+    plant.WeldFrames(plant.GetFrameByName('iiwa_link_7', iiwa_model_instance),
+                     plant.GetFrameByName('body', gripper), X_7G)
     return gripper
 
 
-def AddIiwa(plant, collision_model="no_collision"):
+def AddIiwa(plant, collision_model='no_collision'):
     sdf_path = FindResourceOrThrow(
-        "drake/manipulation/models/iiwa_description/iiwa7/"
-        f"iiwa7_{collision_model}.sdf")
+        'drake/manipulation/models/iiwa_description/iiwa7/'
+        f'iiwa7_{collision_model}.sdf')
 
     parser = Parser(plant)
     iiwa = parser.AddModelFromFile(sdf_path)
-    plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("iiwa_link_0"))
+    plant.WeldFrames(plant.world_frame(), plant.GetFrameByName('iiwa_link_0'))
 
     # Set default positions:
     q0 = IIWA_DEFAULT_POSITION
@@ -115,10 +115,10 @@ def create_iiwa_position_measured_port(builder, plant, iiwa):
                                             output_ports_size=num_iiwa_positions))
     builder.Connect(plant.get_state_output_port(iiwa),
                     demux.get_input_port())
-    builder.ExportOutput(demux.get_output_port(0), "iiwa_position_measured")
+    builder.ExportOutput(demux.get_output_port(0), 'iiwa_position_measured')
 
     controller_plant = MultibodyPlant(time_step=TIME_STEP)
-    controller_iiwa = AddIiwa(controller_plant, collision_model="with_box_collision")
+    controller_iiwa = AddIiwa(controller_plant, collision_model='with_box_collision')
     AddWsg(controller_plant, controller_iiwa, welded=True, sphere=True)
     controller_plant.Finalize()
 
@@ -128,7 +128,7 @@ def create_iiwa_position_measured_port(builder, plant, iiwa):
                                           ki=[1] * num_iiwa_positions,
                                           kd=[20] * num_iiwa_positions,
                                           has_reference_acceleration=False))
-    iiwa_controller.set_name("iiwa_controller")
+    iiwa_controller.set_name('iiwa_controller')
     builder.Connect(plant.get_state_output_port(iiwa),
                     iiwa_controller.get_input_port_estimated_state())
 
@@ -138,7 +138,7 @@ def create_iiwa_position_measured_port(builder, plant, iiwa):
     torque_passthrough = builder.AddSystem(PassThrough([0] * num_iiwa_positions))
     builder.Connect(torque_passthrough.get_output_port(),
                     adder.get_input_port(1))
-    builder.ExportInput(torque_passthrough.get_input_port(), "iiwa_feedforward_torque")
+    builder.ExportInput(torque_passthrough.get_input_port(), 'iiwa_feedforward_torque')
     builder.Connect(adder.get_output_port(),
                     plant.get_actuation_input_port(iiwa))
 
@@ -146,59 +146,76 @@ def create_iiwa_position_measured_port(builder, plant, iiwa):
 
 
 def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None):
-    p_GgraspO = [0., 0.08, -0.02]
-    R_GgraspO = RotationMatrix.MakeZRotation(-np.pi/2.0)
+
+    p_GgraspO = [0.05, 0.07, 0.]
+    p_Ggrasp2O = [0., 0.03, 0.03]
+
+    R_GgraspO = RotationMatrix.MakeZRotation(np.pi/2.0)
+    R_Ggrasp2O = RotationMatrix.MakeZRotation(-np.pi/2.0)
     X_GgraspO = RigidTransform(R_GgraspO, p_GgraspO)
+    X_Ggrasp2O = RigidTransform(R_Ggrasp2O, p_Ggrasp2O)
     
     X_OGgrasp = X_GgraspO.inverse()
 
     # pregrasp is negative y in the gripper frame (see the figure!).
-    X_GgraspGpregrasp = RigidTransform([0, -0.15, 0.0])
+    X_GgraspGpregrasp = RigidTransform([0, -0.2, 0.0])
+    X_Ggrasp2Gpregrasp = RigidTransform([0, -0.22, 0.03])
 
-    X_G["pick"] = X_O["initial"].multiply(X_OGgrasp)
-    X_G["prepick"] = X_G["pick"].multiply(X_GgraspGpregrasp)
+    X_Ggrasp3Gpregrasp = RigidTransform([0, -0.2, 0.03])
+    X_Ggrasp4Gpregrasp = RigidTransform([0, -0.2, -0.07]) #works good [0, -0.2, 0.13]
 
-    X_G["place"] = X_O["goal"].multiply(X_OGgrasp)
-    X_G["postplace"] = X_G["place"].multiply(X_GgraspGpregrasp)
-    
+    X_G['pick'] = X_O['initial'].multiply(X_OGgrasp)
+    X_G['prepick'] = X_G['pick'].multiply(X_GgraspGpregrasp)
+    X_G['postpick'] = X_G['pick'].multiply(X_Ggrasp3Gpregrasp)
+
+    X_G['midway'] = X_G['pick'].multiply(X_Ggrasp4Gpregrasp)
+
+    X_G['place'] = X_O['goal'].multiply(X_Ggrasp2O)
+    X_G['preplace'] = X_G['place'].multiply(X_Ggrasp2Gpregrasp)
+    X_G['postplace'] = X_G['preplace']
+    X_G['final'] = X_G['initial']
 
     # I'll interpolate a halfway orientation by converting to axis angle and halving the angle.
-    X_GpickGplace = X_G["pick"].inverse().multiply(X_G["place"])
+    X_GpickGplace = X_G['pick'].inverse().multiply(X_G['place'])
 
     # Now let's set the timing
-    times = {"initial": 0}
+    times = {'initial': 0}
       
-    X_GinitialGprepick = X_G["initial"].inverse().multiply(X_G["prepick"])
-    times["prepick"] = times["initial"] + 10.0 #*np.linalg.norm(X_GinitialGprepick.translation())
+    X_GinitialGprepick = X_G['initial'].inverse().multiply(X_G['prepick'])
+    times['prepick'] = times['initial'] + 10.0
 
     # Allow some time for the gripper to close.
-    times["pick_start"] = times["prepick"] + 5
-    X_G["pick_start"] = X_G["pick"]
+    times['pick_start'] = times['prepick'] + 5
+    X_G['pick_start'] = X_G['pick']
     
-    times["pick_end"] = times["pick_start"] + 2.0
-    X_G["pick_end"] = X_G["pick"]
+    times['pick_end'] = times['pick_start'] + 2.0
+    X_G['pick_end'] = X_G['pick']
+    times['postpick'] = times['pick_end'] + 2.0
 
-    time_to_rotate = 2.+10.0*np.linalg.norm(X_GpickGplace.rotation().matrix()) 
+    times['midway'] = times['postpick'] + 2.5
+    times['preplace'] = times['midway'] + 2.5
       
-    times["place_start"] = times["pick_end"] + time_to_rotate + 2.0
-    X_G["place_start"] = X_G["place"]
+    times['place_start'] = times['preplace'] + 2.0
+    X_G['place_start'] = X_G['place']
       
-    times["place_end"] = times["place_start"] + 4.0
-    X_G["place_end"] = X_G["place"]
+    times['place_end'] = times['place_start'] + 4.0
+    X_G['place_end'] = X_G['place']
 
-    times["postplace"] = times["place_end"] + 4.0
-
-    print('gripper initial and goal:\n {} {}\n'.format(X_G['pick'], X_G['place']))
-    print(times)
-
+    times['postplace'] = times['place_end'] + 4.0
+    times['final'] = times['postplace'] + 10.0
 
     if meshcat:
-        AddMeshcatTriad(meshcat, "X_Oinitial", X_PT=X_O["initial"])
-        AddMeshcatTriad(meshcat, "X_Ginitial", X_PT=X_G["initial"])
-        AddMeshcatTriad(meshcat, "X_Gprepick", X_PT=X_G["prepick"])
-        AddMeshcatTriad(meshcat, "X_Gpick", X_PT=X_G["pick"])
-        AddMeshcatTriad(meshcat, "X_Gplace", X_PT=X_G["place"])
-        AddMeshcatTriad(meshcat, "X_Gpostplace", X_PT=X_G["postplace"])
+        AddMeshcatTriad(meshcat, 'X_Ginitial', X_PT=X_G['initial'])
+
+        AddMeshcatTriad(meshcat, 'X_Gprepick', X_PT=X_G['prepick'])
+        AddMeshcatTriad(meshcat, 'X_Gpick', X_PT=X_G['pick'])
+        AddMeshcatTriad(meshcat, 'X_Gpostpick', X_PT=X_G['postpick'])
+
+        AddMeshcatTriad(meshcat, 'X_Gmidway', X_PT=X_G['midway'])
+
+        AddMeshcatTriad(meshcat, 'X_Gpreplace', X_PT=X_G['preplace'])
+        AddMeshcatTriad(meshcat, 'X_Gplace', X_PT=X_G['place'])
+        AddMeshcatTriad(meshcat, 'X_Gpostlace', X_PT=X_G['postplace'])
 
     return X_G, times
 
@@ -211,25 +228,25 @@ def AddMeshcatTriad(
     X_TG = RigidTransform(
         RotationMatrix.MakeYRotation(np.pi / 2), [length / 2.0, 0, 0]
     )
-    meshcat.SetTransform(path + "/x-axis", X_TG)
+    meshcat.SetTransform(path + '/x-axis', X_TG)
     meshcat.SetObject(
-        path + "/x-axis", Cylinder(radius, length), Rgba(1, 0, 0, opacity)
+        path + '/x-axis', Cylinder(radius, length), Rgba(1, 0, 0, opacity)
     )
 
     # y-axis
     X_TG = RigidTransform(
         RotationMatrix.MakeXRotation(np.pi / 2), [0, length / 2.0, 0]
     )
-    meshcat.SetTransform(path + "/y-axis", X_TG)
+    meshcat.SetTransform(path + '/y-axis', X_TG)
     meshcat.SetObject(
-        path + "/y-axis", Cylinder(radius, length), Rgba(0, 1, 0, opacity)
+        path + '/y-axis', Cylinder(radius, length), Rgba(0, 1, 0, opacity)
     )
 
     # z-axis
     X_TG = RigidTransform([0, 0, length / 2.0])
-    meshcat.SetTransform(path + "/z-axis", X_TG)
+    meshcat.SetTransform(path + '/z-axis', X_TG)
     meshcat.SetObject(
-        path + "/z-axis", Cylinder(radius, length), Rgba(0, 0, 1, opacity)
+        path + '/z-axis', Cylinder(radius, length), Rgba(0, 0, 1, opacity)
     )
 
 def AddMeshcatSphere(meshcat: Meshcat, path: str, translation: typing.List[float]):
@@ -248,27 +265,27 @@ def create_iiwa_position_desired_port(builder, plant, iiwa, iiwa_pid_controller)
                     num_iiwa_positions,
                     TIME_STEP,
                     suppress_initial_transient=True))
-    desired_state_from_position.set_name("iiwa_desired_state_from_position")
+    desired_state_from_position.set_name('iiwa_desired_state_from_position')
     builder.Connect(desired_state_from_position.get_output_port(),
                     iiwa_pid_controller.get_input_port_desired_state())
 
     iiwa_position = builder.AddSystem(PassThrough(num_iiwa_positions))
-    #builder.ExportInput(iiwa_position.get_input_port(), "iiwa_position")
-    builder.ExportOutput(iiwa_position.get_output_port(), "iiwa_position_commanded")
+    #builder.ExportInput(iiwa_position.get_input_port(), 'iiwa_position')
+    builder.ExportOutput(iiwa_position.get_output_port(), 'iiwa_position_commanded')
     builder.Connect(iiwa_position.get_output_port(), desired_state_from_position.get_input_port())
     return iiwa_position.get_input_port()
 
 
 def create_wsg_position_desired_port(builder, plant, wsg):
     wsg_controller = builder.AddSystem(SchunkWsgPositionController())
-    wsg_controller.set_name("wsg_controller")
+    wsg_controller.set_name('wsg_controller')
     builder.Connect(wsg_controller.get_generalized_force_output_port(),
                     plant.get_actuation_input_port(wsg))
     builder.Connect(plant.get_state_output_port(wsg),
                     wsg_controller.get_state_input_port())
     #builder.ExportInput(
     #    wsg_controller.get_desired_position_input_port(),
-    #    "wsg_position")
+    #    'wsg_position')
 
     wsg_mbp_state_to_wsg_state = builder.AddSystem(MakeMultibodyStateToWsgStateSystem())
     builder.Connect(plant.get_state_output_port(wsg), wsg_mbp_state_to_wsg_state.get_input_port())
@@ -280,18 +297,18 @@ def run_manipulation(method: str):
     meshcat = Meshcat()
     builder = DiagramBuilder()
     plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=TIME_STEP)
-    iiwa = AddIiwa(plant, collision_model="with_box_collision")
+    iiwa = AddIiwa(plant, collision_model='with_box_collision')
     wsg = AddWsg(plant, iiwa, welded=False, sphere=False)
 
     shelves = get_resource(plant, 'shelves')
-    X_WS = RigidTransform(RotationMatrix.Identity(), [0.5, 0., 0.4085])
+    X_WS = RigidTransform(RotationMatrix.Identity(), [0.7, 0., 0.4085])
     plant.WeldFrames(
             plant.world_frame(),
             plant.GetFrameByName('shelves_body', shelves),
             X_WS)
     brick_model = get_resource(plant, 'foam_brick')
-    brick_body = plant.GetBodyByName("base_link", brick_model)
-    X_WB = RigidTransform(RotationMatrix.Identity(), [0.4, 0., 0.4085 + 0.15])
+    brick_body = plant.GetBodyByName('base_link', brick_model)
+    X_WB = RigidTransform(RotationMatrix.Identity(), [0.6, 0., 0.4085 + 0.15])
     plant.SetDefaultFreeBodyPose(brick_body, X_WB)
     plant.Finalize()
 
@@ -302,16 +319,15 @@ def run_manipulation(method: str):
     desired_wsg_position_port = create_wsg_position_desired_port(builder, plant, wsg)
     #########
     # meshcat
-    dst_translation = [0.4, 0., 0.2615 + 0.05]
+    dst_translation = [0.6, 0., 0.2615 + 0.05]
     AddMeshcatSphere(meshcat, 'goal-meshcat', dst_translation)
     #########
     temp_plant_context = plant.CreateDefaultContext()
-    X_G = {'initial': plant.EvalBodyPoseInWorld(temp_plant_context, plant.GetBodyByName("body"))}
-    X_O = {'initial': plant.EvalBodyPoseInWorld(temp_plant_context, plant.GetBodyByName("base_link"))}
+    X_G = {'initial': plant.EvalBodyPoseInWorld(temp_plant_context, plant.GetBodyByName('body'))}
+    X_O = {'initial': plant.EvalBodyPoseInWorld(temp_plant_context, plant.GetBodyByName('base_link'))}
 
     X_O['goal'] = copy.deepcopy(X_O['initial'])
     X_O['goal'].set_translation(dst_translation)
-    print('object initial and goal:\n {} {}\n'.format(X_O['initial'], X_O['goal']))
     X_G, times = make_gripper_frames(X_G, X_O, meshcat)
 
     #########
@@ -334,13 +350,13 @@ def run_manipulation(method: str):
     if not simulator:
         return
 
-    plant.mutable_gravity_field().set_gravity_vector([0, 0, 0])
+    plant.mutable_gravity_field().set_gravity_vector([0, 0, -1.])
     simulator.Initialize()
     if integrator is not None:
         integrator.set_integral_value(
             integrator.GetMyContextFromRoot(simulator.get_mutable_context()),
                 plant.GetPositions(plant.GetMyContextFromRoot(simulator.get_mutable_context()),
-                                   plant.GetModelInstanceByName("iiwa7")))
+                                   plant.GetModelInstanceByName('iiwa7')))
 
     web_url = meshcat.web_url()
     print(f'Meshcat is now available at {web_url}')
