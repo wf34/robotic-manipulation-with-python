@@ -39,13 +39,13 @@ from pydrake.all import (
 )
 
 from differential_controller import create_differential_controller
-
+from open_loop_controller import create_open_loop_controller, IIWA_DEFAULT_POSITION
 
 TIME_STEP=0.007  #faster
-IIWA_DEFAULT_POSITION = [-1.57, 0.1, 0, -1.2, 0, 1.6, 0]
 
 def FindResource(filename):
     return os.path.join(os.path.dirname(__file__), filename)
+
 
 def AddWsg(plant,
            iiwa_model_instance,
@@ -331,10 +331,15 @@ def run_manipulation(method: str):
     X_G, times = make_gripper_frames(X_G, X_O, meshcat)
 
     #########
-    output_iiwa_position_port, output_wsg_position_port, integrator = \
-        create_differential_controller(builder, plant,
-                                       measured_iiwa_position_port,
-                                       X_G, times)
+    if 'inv-kin' == method:
+        output_iiwa_position_port, output_wsg_position_port, integrator = \
+            create_differential_controller(builder, plant,
+                                           measured_iiwa_position_port,
+                                           X_G, times)
+    elif 'global' == method:
+        integrator = None
+        temp_plant_context = plant.CreateDefaultContext() 
+        output_iiwa_position_port, output_wsg_position_port = create_open_loop_controller(builder, plant, iiwa, X_G, times, temp_plant_context)
 
     builder.Connect(output_iiwa_position_port, desired_iiwa_position_port)
     builder.Connect(output_wsg_position_port, desired_wsg_position_port)
