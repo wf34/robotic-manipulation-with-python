@@ -28,18 +28,16 @@ def AddWsg(plant,
     parser = Parser(plant)
     if welded:
         if sphere:
-            gripper = parser.AddModelFromFile(
-                FindResource('models/schunk_wsg_50_welded_fingers_sphere.sdf'),
-                'gripper')
+            gripper = parser.AddModels(
+                FindResource('models/schunk_wsg_50_welded_fingers_sphere.sdf'))[0]
         else:
-            gripper = parser.AddModelFromFile(
-                FindResource('models/schunk_wsg_50_welded_fingers.sdf'),
-                'gripper')
+            gripper = parser.AddModels(
+                FindResource('models/schunk_wsg_50_welded_fingers.sdf'))[0]
     else:
-        gripper = parser.AddModelFromFile(
+        gripper = parser.AddModels(
             FindResourceOrThrow(
                 'drake/manipulation/models/'
-                'wsg_50_description/sdf/schunk_wsg_50_with_tip.sdf'))
+                'wsg_50_description/sdf/schunk_wsg_50_with_tip.sdf'))[0]
 
     X_7G = RigidTransform(RollPitchYaw(np.pi / 2.0, 0, np.pi / 2.0), [0, 0, 0.114])
     plant.WeldFrames(plant.GetFrameByName('iiwa_link_7', iiwa_model_instance),
@@ -53,7 +51,7 @@ def AddIiwa(plant, collision_model='no_collision'):
         f'iiwa7_{collision_model}.sdf')
 
     parser = Parser(plant)
-    iiwa = parser.AddModelFromFile(sdf_path)
+    iiwa = parser.AddModels(sdf_path)[0]
     plant.WeldFrames(plant.world_frame(), plant.GetFrameByName('iiwa_link_0'))
 
     # Set default positions:
@@ -78,4 +76,4 @@ def get_resource_path(resource_name: str) -> str:
 
 def get_resource(plant: MultibodyPlant, resource_name: str):
     resource_path = get_resource_path(resource_name)
-    return Parser(plant=plant).AddModelFromFile(resource_path)
+    return Parser(plant=plant).AddModels(resource_path)[0]
