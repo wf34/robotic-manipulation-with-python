@@ -14,6 +14,7 @@ from pydrake.all import (
 )
 
 IIWA_DEFAULT_POSITION = [-1.57, 0.1, 0, -1.2, 0, 1.6, 0]
+BRICK_GOAL_TRANSLATION = [0.6, 0., 0.2615 + 0.05]
 
 def FindResource(filename):
     return os.path.join(os.path.dirname(__file__), filename)

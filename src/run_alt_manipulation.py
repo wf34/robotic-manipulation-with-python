@@ -20,27 +20,11 @@ from pydrake.geometry import (Cylinder, GeometryInstance,
                               MakePhongIllustrationProperties)
 from pydrake.multibody import inverse_kinematics
 
+from grading import get_start_and_end_positions
+from resource_loader import AddIiwa, AddWsg, get_resource, BRICK_GOAL_TRANSLATION
+from visualization_tools import AddMeshactProgressSphere, AddMeshcatSphere
+
 TIME_STEP=0.007  #faster
-
-from resource_loader import AddIiwa, AddWsg, get_resource
-
-def AddMeshactProgressSphere(meshcat, current_time, total_duration, plant, root_context):
-    plant_context = plant.GetMyContextFromRoot(root_context)
-
-    blue = np.array([0., 0., 1., 1.])
-    green = np.array([0., 1., 0., 1.])
-
-    a = current_time / total_duration
-    assert 0. <= a and a <= 1.
-    b = 1. - a
-    mixture = a * blue + b * green
-
-    root_context.SetTime(current_time)
-
-    X_W_G = plant.EvalBodyPoseInWorld(plant_context, plant.GetBodyByName("body"))
-    curr_point = 'point_{}'.format(current_time)
-    meshcat.SetObject(curr_point, Sphere(0.01), rgba=Rgba(*mixture.tolist()))
-    meshcat.SetTransform(curr_point, X_W_G)
 
 
 def PublishPositionTrajectores(trajectory,
@@ -78,6 +62,13 @@ def create_diagram_without_controllers(meshcat = None):
             plant.GetFrameByName('shelves_body', shelves),
             X_WS)
 
+    brick_model = get_resource(plant, 'shadow_brick')
+    brick_body = plant.GetBodyByName('base_link', brick_model)
+    X_WB = RigidTransform(RotationMatrix.Identity(), [0.6, 0., 0.4085 + 0.15])
+    plant.WeldFrames(
+            plant.world_frame(),
+            plant.GetFrameByName('base_link', brick_model),
+            X_WB)
     plant.Finalize()
 
     visualizer = None
@@ -141,7 +132,7 @@ def constrain_position(plant, trajopt,
         trajopt.AddPathPositionConstraint(orientation_constraint, target_time)
 
 
-def solve_for_iiwa_internal_trajectory(plant, X_G, times, plant_temp_context):
+def solve_for_iiwa_internal_trajectory(plant, X_G, X_O, plant_temp_context):
     num_q = plant.num_positions()
     num_c = 5
     print('num_positions: {}; num control points: {}'.format(num_q, num_c))
@@ -201,26 +192,24 @@ def solve_for_iiwa_internal_trajectory(plant, X_G, times, plant_temp_context):
     return handle_opt_result(result, trajopt, prog)
 
 
-def solve_for_iiwa_internal_trajectory_standalone(X_G, times):
+def solve_for_iiwa_internal_trajectory_standalone(X_G, X_O):
     diagram, plant, visualizer_absent = create_diagram_without_controllers()
 
     context = diagram.CreateDefaultContext()
     plant_context = plant.GetMyContextFromRoot(context)
-    times = None
-    X_G = {'initial': plant.EvalBodyPoseInWorld(plant_context, plant.GetBodyByName('body'))}
     traj_dimensionality = plant.num_positions()
-    return solve_for_iiwa_internal_trajectory(plant, X_G, times, plant_context), traj_dimensionality
+    return solve_for_iiwa_internal_trajectory(plant, X_G, None, plant_context), traj_dimensionality
 
 
 def trajopt_demo(meshcat):
     diagram, plant, visualizer = create_diagram_without_controllers(meshcat)
-
+    AddMeshcatSphere(meshcat, 'goal-meshcat', BRICK_GOAL_TRANSLATION)
     context = diagram.CreateDefaultContext()
     plant_context = plant.GetMyContextFromRoot(context)
     visualizer_context = visualizer.GetMyContextFromRoot(context)
-    times = None
-    X_G = {'initial': plant.EvalBodyPoseInWorld(plant_context, plant.GetBodyByName('body'))}
-    trajectory = solve_for_iiwa_internal_trajectory(plant, X_G, times, plant_context)
+    X_G, X_O = get_start_and_end_positions(plant, plant_context)
+
+    trajectory = solve_for_iiwa_internal_trajectory(plant, X_G, X_O, plant_context)
 
     print(trajectory.start_time(), trajectory.end_time())
     PublishPositionTrajectores(trajectory, context, plant, visualizer, meshcat)
