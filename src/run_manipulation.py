@@ -21,11 +21,7 @@ from pydrake.all import (
     SchunkWsgPositionController,
     MakeMultibodyStateToWsgStateSystem,
 
-    Parser,
-    FindResourceOrThrow,
-    RevoluteJoint,
     RigidTransform,
-    RollPitchYaw,
     RotationMatrix,
 
     Adder,
@@ -38,111 +34,56 @@ from pydrake.all import (
     Rgba,
 )
 
+from resource_loader import AddIiwa, AddWsg, get_resource
 from differential_controller import create_differential_controller
-from open_loop_controller import create_open_loop_controller, IIWA_DEFAULT_POSITION
+from open_loop_controller import create_open_loop_controller
 
 TIME_STEP=0.007  #faster
 
-def FindResource(filename):
-    return os.path.join(os.path.dirname(__file__), filename)
 
-
-def AddWsg(plant,
-           iiwa_model_instance,
-           roll=np.pi / 2.0,
-           welded=False,
-           sphere=False):
-    parser = Parser(plant)
-    if welded:
-        if sphere:
-            gripper = parser.AddModelFromFile(
-                FindResource('models/schunk_wsg_50_welded_fingers_sphere.sdf'),
-                'gripper')
-        else:
-            gripper = parser.AddModelFromFile(
-                FindResource('models/schunk_wsg_50_welded_fingers.sdf'),
-                'gripper')
-    else:
-        gripper = parser.AddModelFromFile(
-            FindResourceOrThrow(
-                'drake/manipulation/models/'
-                'wsg_50_description/sdf/schunk_wsg_50_with_tip.sdf'))
-
-    X_7G = RigidTransform(RollPitchYaw(np.pi / 2.0, 0, np.pi / 2.0), [0, 0, 0.114])
-    plant.WeldFrames(plant.GetFrameByName('iiwa_link_7', iiwa_model_instance),
-                     plant.GetFrameByName('body', gripper), X_7G)
-    return gripper
-
-
-def AddIiwa(plant, collision_model='no_collision'):
-    sdf_path = FindResourceOrThrow(
-        'drake/manipulation/models/iiwa_description/iiwa7/'
-        f'iiwa7_{collision_model}.sdf')
-
-    parser = Parser(plant)
-    iiwa = parser.AddModelFromFile(sdf_path)
-    plant.WeldFrames(plant.world_frame(), plant.GetFrameByName('iiwa_link_0'))
-
-    # Set default positions:
-    q0 = IIWA_DEFAULT_POSITION
-    index = 0
-    for joint_index in plant.GetJointIndices(iiwa):
-        joint = plant.get_mutable_joint(joint_index)
-        if isinstance(joint, RevoluteJoint):
-            joint.set_default_angle(q0[index])
-            index += 1
-
-    return iiwa
-
-
-def get_resource_path(resource_name: str) -> str:
-    resource_file = os.path.join('resources', f'{resource_name}.sdf')
-    full_path = os.path.join(os.path.split(os.path.abspath(os.path.dirname(sys.argv[0])))[0], resource_file)
-    if not os.path.exists(full_path) or not os.path.isfile(full_path):
-        raise Exception(f'a resource {resource_name} is absent')
-    return full_path
-
-
-def get_resource(plant: MultibodyPlant, resource_name: str):
-    resource_path = get_resource_path(resource_name)
-    return Parser(plant=plant).AddModelFromFile(resource_path)
-
-
-def create_iiwa_position_measured_port(builder, plant, iiwa):
+def create_iiwa_controller(plant, iiwa):
     num_iiwa_positions = plant.num_positions(iiwa)
-    iiwa_output_state = plant.get_state_output_port(iiwa)
-    demux = builder.AddSystem(Demultiplexer(size=num_iiwa_positions*2,
-                                            output_ports_size=num_iiwa_positions))
-    builder.Connect(plant.get_state_output_port(iiwa),
-                    demux.get_input_port())
-    builder.ExportOutput(demux.get_output_port(0), 'iiwa_position_measured')
+
+    local_builder = DiagramBuilder()
 
     controller_plant = MultibodyPlant(time_step=TIME_STEP)
     controller_iiwa = AddIiwa(controller_plant, collision_model='with_box_collision')
     AddWsg(controller_plant, controller_iiwa, welded=True, sphere=True)
     controller_plant.Finalize()
 
-    iiwa_controller = builder.AddSystem(
+    iiwa_state_port = local_builder.AddSystem(PassThrough(num_iiwa_positions *2))
+    iiwa_state_port.set_name('iiwa_state_port')
+    demux = local_builder.AddSystem(Demultiplexer(size=num_iiwa_positions*2,
+                                                  output_ports_size=num_iiwa_positions))
+
+    iiwa_controller = local_builder.AddSystem(
                 InverseDynamicsController(controller_plant,
                                           kp=[100] * num_iiwa_positions,
                                           ki=[1] * num_iiwa_positions,
                                           kd=[20] * num_iiwa_positions,
                                           has_reference_acceleration=False))
-    iiwa_controller.set_name('iiwa_controller')
-    builder.Connect(plant.get_state_output_port(iiwa),
-                    iiwa_controller.get_input_port_estimated_state())
+    iiwa_controller.set_name('inner_iiwa_controller')
 
-    adder = builder.AddSystem(Adder(2, num_iiwa_positions))
-    builder.Connect(iiwa_controller.get_output_port_control(),
-                    adder.get_input_port(0))
-    torque_passthrough = builder.AddSystem(PassThrough([0] * num_iiwa_positions))
-    builder.Connect(torque_passthrough.get_output_port(),
-                    adder.get_input_port(1))
-    builder.ExportInput(torque_passthrough.get_input_port(), 'iiwa_feedforward_torque')
-    builder.Connect(adder.get_output_port(),
-                    plant.get_actuation_input_port(iiwa))
+    desired_state_from_position = local_builder.AddSystem(
+                StateInterpolatorWithDiscreteDerivative(
+                    num_iiwa_positions,
+                    TIME_STEP,
+                    suppress_initial_transient=True))
+    desired_state_from_position.set_name('iiwa_desired_state_from_position')
 
-    return demux.get_output_port(0), iiwa_controller, iiwa_output_state
+    local_builder.Connect(desired_state_from_position.get_output_port(),
+                          iiwa_controller.get_input_port_desired_state())
+    local_builder.Connect(iiwa_state_port.get_output_port(), iiwa_controller.get_input_port_estimated_state())
+    local_builder.Connect(iiwa_state_port.get_output_port(), demux.get_input_port())
+
+    local_builder.ExportInput(desired_state_from_position.get_input_port(), 'iiwa_position_desired')
+    local_builder.ExportInput(iiwa_state_port.get_input_port(), 'iiwa_state')
+    local_builder.ExportOutput(iiwa_controller.get_output_port_control(), 'iiwa_control')
+    local_builder.ExportOutput(demux.get_output_port(0), 'iiwa_position_measured')
+
+    diagram = local_builder.Build()
+    diagram.set_name("iiwa_controller")
+    return diagram
 
 
 def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None):
@@ -258,37 +199,13 @@ def AddMeshcatSphere(meshcat: Meshcat, path: str, translation: typing.List[float
     )
 
 
-def create_iiwa_position_desired_port(builder, plant, iiwa, iiwa_pid_controller):
-    num_iiwa_positions = plant.num_positions(iiwa)
-    desired_state_from_position = builder.AddSystem(
-                StateInterpolatorWithDiscreteDerivative(
-                    num_iiwa_positions,
-                    TIME_STEP,
-                    suppress_initial_transient=True))
-    desired_state_from_position.set_name('iiwa_desired_state_from_position')
-    builder.Connect(desired_state_from_position.get_output_port(),
-                    iiwa_pid_controller.get_input_port_desired_state())
-
-    iiwa_position = builder.AddSystem(PassThrough(num_iiwa_positions))
-    #builder.ExportInput(iiwa_position.get_input_port(), 'iiwa_position')
-    builder.ExportOutput(iiwa_position.get_output_port(), 'iiwa_position_commanded')
-    builder.Connect(iiwa_position.get_output_port(), desired_state_from_position.get_input_port())
-    return iiwa_position.get_input_port()
-
-
 def create_wsg_position_desired_port(builder, plant, wsg):
     wsg_controller = builder.AddSystem(SchunkWsgPositionController())
     wsg_controller.set_name('wsg_controller')
-    builder.Connect(wsg_controller.get_generalized_force_output_port(),
-                    plant.get_actuation_input_port(wsg))
     builder.Connect(plant.get_state_output_port(wsg),
                     wsg_controller.get_state_input_port())
-    #builder.ExportInput(
-    #    wsg_controller.get_desired_position_input_port(),
-    #    'wsg_position')
-
-    wsg_mbp_state_to_wsg_state = builder.AddSystem(MakeMultibodyStateToWsgStateSystem())
-    builder.Connect(plant.get_state_output_port(wsg), wsg_mbp_state_to_wsg_state.get_input_port())
+    builder.Connect(wsg_controller.get_generalized_force_output_port(),
+                    plant.get_actuation_input_port(wsg))
 
     return wsg_controller.get_desired_position_input_port()
 
@@ -313,10 +230,14 @@ def run_manipulation(method: str):
     plant.SetDefaultFreeBodyPose(brick_body, X_WB)
     plant.Finalize()
 
-    measured_iiwa_position_port, iiwa_pid_controller, measured_iiwa_state_port = \
-        create_iiwa_position_measured_port(
-            builder, plant, iiwa)
-    desired_iiwa_position_port = create_iiwa_position_desired_port(builder, plant, iiwa, iiwa_pid_controller)
+    iiwa_controller = builder.AddSystem(create_iiwa_controller(plant, iiwa))
+    iiwa_state_port = iiwa_controller.GetInputPort('iiwa_state')
+    iiwa_control = iiwa_controller.GetOutputPort('iiwa_control')
+    desired_iiwa_position_port = iiwa_controller.GetInputPort('iiwa_position_desired')
+    measured_iiwa_position_port = iiwa_controller.GetOutputPort('iiwa_position_measured')
+    
+    builder.Connect(iiwa_control, plant.get_actuation_input_port(iiwa))
+    builder.Connect(plant.get_state_output_port(iiwa), iiwa_state_port)
     desired_wsg_position_port = create_wsg_position_desired_port(builder, plant, wsg)
     #########
     # meshcat
@@ -339,8 +260,7 @@ def run_manipulation(method: str):
                                            X_G, times)
     elif 'global' == method:
         integrator = None
-        temp_plant_context = plant.CreateDefaultContext() 
-        output_iiwa_position_port, output_wsg_position_port = create_open_loop_controller(builder, plant, iiwa, X_G, times, temp_plant_context)
+        output_iiwa_position_port, output_wsg_position_port = create_open_loop_controller(builder, plant, iiwa, X_G, times)
 
     builder.Connect(output_iiwa_position_port, desired_iiwa_position_port)
     builder.Connect(output_wsg_position_port, desired_wsg_position_port)
