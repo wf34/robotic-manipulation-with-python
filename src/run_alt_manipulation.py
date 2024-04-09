@@ -4,6 +4,7 @@ import argparse
 import functools
 import itertools
 import time
+import typing
 import os
 import sys
 
@@ -21,8 +22,8 @@ from pydrake.geometry import (Cylinder, GeometryInstance,
 from pydrake.multibody import inverse_kinematics
 
 from grading import get_start_and_end_positions
-from resource_loader import AddIiwa, AddWsg, get_resource, BRICK_GOAL_TRANSLATION
-from visualization_tools import AddMeshactProgressSphere, AddMeshcatSphere
+from resource_loader import AddIiwa, AddWsg, get_resource, BRICK_GOAL_TRANSLATION, IIWA_DEFAULT_POSITION
+from visualization_tools import AddMeshactProgressSphere, AddMeshcatSphere, AddMeshcatTriad
 
 TIME_STEP=0.007  #faster
 
@@ -132,14 +133,33 @@ def constrain_position(plant, trajopt,
         trajopt.AddPathPositionConstraint(orientation_constraint, target_time)
 
 
-def solve_for_iiwa_internal_trajectory(plant, X_G, X_O, plant_temp_context):
+def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None):
+    p_GgraspO = [0.05, 0.07, 0.]
+    R_GgraspO = RotationMatrix.MakeZRotation(np.pi/2.0)
+
+    X_GgraspO = RigidTransform(R_GgraspO, p_GgraspO)
+    X_OGgrasp = X_GgraspO.inverse()
+
+    X_GgraspGpregrasp = RigidTransform([0, -0.2, 0.0])
+
+    X_G['pick'] = X_O['initial'].multiply(X_OGgrasp)
+    X_G['prepick'] = X_G['pick'].multiply(X_GgraspGpregrasp)
+
+    if meshcat:
+        AddMeshcatTriad(meshcat, 'X_Ginitial', X_PT=X_G['initial'])
+        AddMeshcatTriad(meshcat, 'X_Gprepick', X_PT=X_G['prepick'])
+        AddMeshcatTriad(meshcat, 'X_Gpick', X_PT=X_G['pick'])
+
+    return X_G
+
+def solve_for_iiwa_internal_trajectory(plant, X_G, X_O, plant_temp_context, meshcat :typing.Optional[Meshcat] = None):
     num_q = plant.num_positions()
-    num_c = 5
+    num_c = 15
     print('num_positions: {}; num control points: {}'.format(num_q, num_c))
+    X_G = make_gripper_frames(X_G, X_O, meshcat)
 
     X_WGStart = X_G['initial']
-    X_WGgoal = RigidTransform(X_G['initial'].rotation(), X_G['initial'].translation() + [0, 0, 0.3])
-    print('T:', X_WGStart.translation(), X_WGgoal.translation())
+    X_WGgoal = X_G['prepick']
 
     trajopt = KinematicTrajectoryOptimization(num_q, num_c)
     prog = trajopt.get_mutable_prog()
@@ -158,35 +178,29 @@ def solve_for_iiwa_internal_trajectory(plant, X_G, X_O, plant_temp_context):
     #trajopt.SetInitialGuess(BsplineTrajectory(trajopt.basis(), q_guess))
 
     trajopt.AddDurationCost(1.0)
-    trajopt.AddPathLengthCost(1.0)
+    trajopt.AddPathLengthCost(2.0)
 
     plant_p_lower_limits = np.nan_to_num(plant.GetPositionLowerLimits(), neginf=0)
     plant_p_upper_limits = np.nan_to_num(plant.GetPositionUpperLimits(), posinf=0)
-
     trajopt.AddPositionBounds(plant_p_lower_limits, plant_p_upper_limits)
 
-    plant_v_lower_limits = np.zeros((num_q,))
-    plant_v_upper_limits = np.zeros((num_q,))
-    plant_v_lower_limits_ = np.nan_to_num(plant.GetVelocityLowerLimits(), neginf=0)
-    plant_v_upper_limits_ = np.nan_to_num(plant.GetVelocityUpperLimits(), posinf=0)
-    plant_v_lower_limits[:len(plant_v_lower_limits_)] = plant_v_lower_limits_
-    plant_v_upper_limits[:len(plant_v_upper_limits_)] = plant_v_upper_limits_
-
+    plant_v_lower_limits = np.nan_to_num(plant.GetVelocityLowerLimits(), neginf=0)
+    plant_v_upper_limits = np.nan_to_num(plant.GetVelocityUpperLimits(), posinf=0)
     trajopt.AddVelocityBounds(plant_v_lower_limits, plant_v_upper_limits)
 
-    trajopt.AddDurationConstraint(1, 3)
+    trajopt.AddDurationConstraint(3, 5)
+
     start_lim = 1e-2
-    end_lim   = 0.2
+    end_lim   = 0.1
 
     constrain_position(plant, trajopt, X_WGStart, 0, plant_temp_context,
                        with_orientation=True, pos_limit=start_lim)
-    constrain_position(plant, trajopt, X_WGgoal,  1, plant_temp_context,
+    constrain_position(plant, trajopt, X_WGgoal, 1, plant_temp_context,
                        with_orientation=True, pos_limit=end_lim)
 
-    trajopt.AddPathVelocityConstraint(np.zeros((num_q, 1)), np.zeros(
-        (num_q, 1)), 0)
-    trajopt.AddPathVelocityConstraint(np.zeros((num_q, 1)), np.zeros(
-        (num_q, 1)), 1)
+    zero_vec = np.zeros((num_q, 1))
+    trajopt.AddPathVelocityConstraint(zero_vec, zero_vec, 0)
+    trajopt.AddPathVelocityConstraint(zero_vec, zero_vec, 1)
 
     result = Solve(prog)
     return handle_opt_result(result, trajopt, prog)
@@ -198,7 +212,8 @@ def solve_for_iiwa_internal_trajectory_standalone(X_G, X_O):
     context = diagram.CreateDefaultContext()
     plant_context = plant.GetMyContextFromRoot(context)
     traj_dimensionality = plant.num_positions()
-    return solve_for_iiwa_internal_trajectory(plant, X_G, None, plant_context), traj_dimensionality
+
+    return solve_for_iiwa_internal_trajectory(plant, X_G, X_O, plant_context, None), traj_dimensionality
 
 
 def trajopt_demo(meshcat):
@@ -209,7 +224,7 @@ def trajopt_demo(meshcat):
     visualizer_context = visualizer.GetMyContextFromRoot(context)
     X_G, X_O = get_start_and_end_positions(plant, plant_context)
 
-    trajectory = solve_for_iiwa_internal_trajectory(plant, X_G, X_O, plant_context)
+    trajectory = solve_for_iiwa_internal_trajectory(plant, X_G, X_O, plant_context, meshcat)
 
     print(trajectory.start_time(), trajectory.end_time())
     PublishPositionTrajectores(trajectory, context, plant, visualizer, meshcat)
