@@ -30,16 +30,23 @@ from pydrake.all import (
     InverseDynamicsController,
 )
 
-from grading import get_start_and_end_positions
+from grading import get_start_and_end_positions, print_score
 from differential_controller import create_differential_controller
 from open_loop_controller import create_open_loop_controller
 from resource_loader import AddIiwa, AddWsg, get_resource, BRICK_GOAL_TRANSLATION
 from visualization_tools import AddMeshcatSphere
 
-TIME_STEP=0.007  #faster
+#TIME_STEP=0.002 # finer
+TIME_STEP=0.007  # faster
 
 
-def create_iiwa_controller(plant, iiwa):
+def create_iiwa_controller(plant, iiwa, method):
+    if 'global' == method:
+        params = [100, 15, 10]
+    elif 'inv-kin' == method:
+        params = [100, 1, 20]
+    kp, ki, kd = params
+
     num_iiwa_positions = plant.num_positions(iiwa)
 
     local_builder = DiagramBuilder()
@@ -56,9 +63,9 @@ def create_iiwa_controller(plant, iiwa):
 
     iiwa_controller = local_builder.AddSystem(
                 InverseDynamicsController(controller_plant,
-                                          kp=[100] * num_iiwa_positions,
-                                          ki=[1] * num_iiwa_positions,
-                                          kd=[20] * num_iiwa_positions,
+                                          kp=[kp] * num_iiwa_positions,
+                                          ki=[ki] * num_iiwa_positions,
+                                          kd=[kd] * num_iiwa_positions,
                                           has_reference_acceleration=False))
     iiwa_controller.set_name('inner_iiwa_controller')
 
@@ -115,7 +122,7 @@ def run_manipulation(method: str):
     plant.SetDefaultFreeBodyPose(brick_body, X_WB)
     plant.Finalize()
 
-    iiwa_controller = builder.AddSystem(create_iiwa_controller(plant, iiwa))
+    iiwa_controller = builder.AddSystem(create_iiwa_controller(plant, iiwa, method))
     iiwa_state_port = iiwa_controller.GetInputPort('iiwa_state')
     iiwa_control = iiwa_controller.GetOutputPort('iiwa_control')
     desired_iiwa_position_port = iiwa_controller.GetInputPort('iiwa_position_desired')
@@ -155,7 +162,7 @@ def run_manipulation(method: str):
     if not simulator:
         return
 
-    plant.mutable_gravity_field().set_gravity_vector([0, 0, -1.])
+    plant.mutable_gravity_field().set_gravity_vector([0, 0, -1])
     simulator.Initialize()
     if integrator is not None:
         integrator.set_integral_value(
@@ -165,10 +172,11 @@ def run_manipulation(method: str):
 
     web_url = meshcat.web_url()
     print(f'Meshcat is now available at {web_url}')
-    os.system(f'xdg-open {web_url}')
+    os.popen(f'chromium {web_url}')
 
     visualizer.StartRecording(False)
     simulator.AdvanceTo(total_time)
+    print_score(plant, simulator.get_context())
     visualizer.PublishRecording()
     time.sleep(30)
 
