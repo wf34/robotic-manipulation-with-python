@@ -513,7 +513,7 @@ def make_wsg_command_trajectory(times) -> Trajectory:
     return traj_wsg
 
 
-def solve_for_picking_trajectories(scene_graph, plant, X_G, X_O, plant_context, meshcat) -> typing.List[typing.Optional[BsplineTrajectory]], Trajectory:
+def solve_for_picking_trajectories(scene_graph, plant, X_G, X_O, plant_context, meshcat) -> typing.Tuple[typing.List[typing.Optional[BsplineTrajectory]], Trajectory]:
     # returns a tuple (stacked_iiwa_trajectores, wsg_trajectory)
     # stacked_iiwa_trajectores are the manipulator trajectories, found by the `KinematicTrajectoryOptimization`
     # `None` entry in a `stacked_iiwa_trajectores` signifies stationary trajectory;
