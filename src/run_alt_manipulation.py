@@ -10,13 +10,13 @@ import sys
 
 import numpy as np
 from pydrake.math import RigidTransform, RotationMatrix, RollPitchYaw
-from pydrake.all import (AddMultibodyPlantSceneGraph, BsplineTrajectory, GeometryInstance,
+from pydrake.all import (AddMultibodyPlantSceneGraph, BsplineTrajectory, Trajectory, GeometryInstance,
                          DiagramBuilder, KinematicTrajectoryOptimization, LinearConstraint,
                          MeshcatVisualizer, MeshcatVisualizerParams,
                          Parser, PositionConstraint, OrientationConstraint, DistanceConstraint,
                          Rgba, RigidTransform, Role, Solve, Sphere, PiecewisePolynomial,
                          Meshcat, FindResourceOrThrow, RevoluteJoint, RollPitchYaw, GetDrakePath, MeshcatCone,
-                         ConstantVectorSource, StackedTrajectory)
+                         ConstantVectorSource)
 from pydrake.geometry import (Cylinder, GeometryInstance,
                               MakePhongIllustrationProperties)
 from pydrake.multibody import inverse_kinematics
@@ -186,7 +186,9 @@ def constrain_position(plant, trajopt,
         trajopt.AddPathPositionConstraint(orientation_constraint, target_time)
 
 
-def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None):
+def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None) -> typing.Mapping[str, RigidTransform]:
+    # returns `X_G`, a dict of "Keyframe" gripper locations that controller must pass through
+
     p_GgraspO = [0.00, 0.07, -0.03]
     R_GgraspO = RotationMatrix.MakeZRotation(np.pi/2.0)
 
@@ -317,7 +319,7 @@ def run_traj_opt_towards_preplace(goal_name, X_WGStart, X_WGgoal, plant, plant_c
     prog = trajopt.get_mutable_prog()
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
-    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.1, 0.1, 0.1])
+    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.15, 0.15, 0.15])
     q_guess = np.linspace(q0.reshape((num_q, 1)),
                           q_goal.reshape((num_q, 1)),
                           trajopt.num_control_points()
@@ -497,7 +499,7 @@ def run_traj_opt_towards_final(goal_name, X_WGStart, X_WGgoal, plant, plant_cont
     return handle_opt_result(result, trajopt, prog)
 
 
-def make_wsg_command_trajectory(times):
+def make_wsg_command_trajectory(times) -> Trajectory:
     opened = np.array([0.107]);
     closed = np.array([0.06]);
     traj_wsg = PiecewisePolynomial.FirstOrderHold([times['initial'], times['prepick']],
@@ -510,7 +512,13 @@ def make_wsg_command_trajectory(times):
     traj_wsg.AppendFirstOrderSegment(times['final'], opened)
     return traj_wsg
 
-def solve_for_picking_trajectories(scene_graph, plant, X_G, X_O, plant_context, meshcat):
+
+def solve_for_picking_trajectories(scene_graph, plant, X_G, X_O, plant_context, meshcat) -> typing.List[typing.Optional[BsplineTrajectory]], Trajectory:
+    # returns a tuple (stacked_iiwa_trajectores, wsg_trajectory)
+    # stacked_iiwa_trajectores are the manipulator trajectories, found by the `KinematicTrajectoryOptimization`
+    # `None` entry in a `stacked_iiwa_trajectores` signifies stationary trajectory;
+    # stationary trajectories are used to give the controller time to close the gripper
+
     gripper_body_index = int(plant.GetBodyByName('body').index())
     X_WBcurrent_getter = lambda body_index: plant.get_body_poses_output_port().Eval(plant_context)[body_index]
     X_WGcurrent_getter = lambda _=None: X_WBcurrent_getter(gripper_body_index)

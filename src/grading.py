@@ -5,6 +5,12 @@ import numpy as np
 from pydrake.all import MultibodyPlant, Context
 from resource_loader import BRICK_GOAL_TRANSLATION
 
+def verify_frames(X_G, times):
+    locations = set(X_G.keys())
+    times = set(times.keys())
+    return locations == times
+
+
 def get_start_and_end_positions(plant: MultibodyPlant, context: Context):
     # gripper and object positions
     X_G = {'initial': plant.EvalBodyPoseInWorld(context, plant.GetBodyByName('body'))}

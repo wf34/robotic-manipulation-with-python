@@ -15,6 +15,7 @@ from pydrake.all import (
 )
 
 from visualization_tools import AddMeshcatTriad
+from grading import verify_frames
 
 # any controller basically needs to put forward its output ports for iiwa_position and wsg_position 
 # controller may also depend on the measured positions
@@ -95,7 +96,13 @@ class PseudoInverseController(LeafSystem):
         output.SetFromVector(v)
 
 
-def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None):
+def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None) \
+        -> typing.Tuple[typing.Mapping[str, RigidTransform], typing.Mapping[str, float]]:
+    # returns a (X_G, times) tuple, where
+    #    - `X_G` is a dict of "Keyframe" gripper locations that controller must pass through
+    #    - `times` is a dict of moments (since the simulation start) when those gripper locations
+    #       must be reached by the control
+
     p_GgraspO = [0.05, 0.07, 0.]
     p_Ggrasp2O = [0., 0.03, 0.03]
 
@@ -166,6 +173,7 @@ def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None):
         AddMeshcatTriad(meshcat, 'X_Gplace', X_PT=X_G['place'])
         AddMeshcatTriad(meshcat, 'X_Gpostlace', X_PT=X_G['postplace'])
 
+    verify_frames(X_G, times)
     return X_G, times
 
 
