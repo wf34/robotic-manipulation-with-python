@@ -25,6 +25,7 @@ from pydrake.all import (
     RotationMatrix,
 
     Adder,
+    ConstantVectorSource,
     Demultiplexer,
     PassThrough,
     InverseDynamicsController,
@@ -93,11 +94,15 @@ def create_iiwa_controller(plant, iiwa, method):
 
 def create_wsg_position_desired_port(builder, plant, wsg):
     wsg_controller = builder.AddSystem(SchunkWsgPositionController())
+    constant_force_limit = builder.AddSystem(ConstantVectorSource([40.]))
     wsg_controller.set_name('wsg_controller')
+
     builder.Connect(plant.get_state_output_port(wsg),
                     wsg_controller.get_state_input_port())
     builder.Connect(wsg_controller.get_generalized_force_output_port(),
                     plant.get_actuation_input_port(wsg))
+    builder.Connect(constant_force_limit.get_output_port(),
+                    wsg_controller.get_force_limit_input_port())
 
     return wsg_controller.get_desired_position_input_port()
 
