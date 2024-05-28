@@ -48,20 +48,23 @@ def AddMeshcatSphere(meshcat: Meshcat, path: str, translation: typing.List[float
     )
 
 
-def AddMeshactProgressSphere(meshcat, current_time, total_duration, plant, root_context):
+def AddMeshactProgressSphere(meshcat, current_time, index, plant, root_context):
     plant_context = plant.GetMyContextFromRoot(root_context)
 
+    red = np.array([1., 0., 0., 1.])
     blue = np.array([0., 0., 1., 1.])
     green = np.array([0., 1., 0., 1.])
-
-    a = current_time / total_duration
-    assert 0. <= a and a <= 1.
-    b = 1. - a
-    mixture = a * blue + b * green
+    orange = np.array([1., .647, 0., 1.])
+    purple = np.array([.502, .0, .502, 1.])
+    yellow = np.array([1., 1., 0., 1.])
+    cyan = np.array([0., 1., 1., 1.])
+    brown = np.array([0.502, .251, 0., 1.])
+    color = [red, blue, green, orange, purple, yellow, cyan, brown]
+    i = index % len(color)
 
     root_context.SetTime(current_time)
 
     X_W_G = plant.EvalBodyPoseInWorld(plant_context, plant.GetBodyByName("body"))
     curr_point = 'point_{}'.format(current_time)
-    meshcat.SetObject(curr_point, Sphere(0.01), rgba=Rgba(*mixture.tolist()))
+    meshcat.SetObject(curr_point, Sphere(0.01), rgba=Rgba(*color[i].tolist()))
     meshcat.SetTransform(curr_point, X_W_G)

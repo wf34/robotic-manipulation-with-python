@@ -72,7 +72,7 @@ def PublishPositionTrajectores(trajectories, # for iiwa
         x[7,0] = wsg_current_value
         plant.SetPositions(plant_context, x)
         if meshcat:
-            AddMeshactProgressSphere(meshcat, t, overall_length, plant, root_context)
+            AddMeshactProgressSphere(meshcat, t, current_traj_index, plant, root_context)
         visualizer.ForcedPublish(visualizer_context)
 
     visualizer.StopRecording()
