@@ -228,8 +228,7 @@ def run_traj_opt_towards_prepick(goal_name, X_WGStart, X_WGgoal, plant, plant_co
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
     q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.2, 0.2, 0.2])
-    # prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
-    # prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, -1])
+    prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
 
     q_guess = np.linspace(q0.reshape((num_q, 1)),
                           q_goal.reshape((num_q, 1)),
@@ -265,6 +264,7 @@ def run_traj_opt_towards_prepick(goal_name, X_WGStart, X_WGgoal, plant, plant_co
     result = Solve(prog)
     return handle_opt_result(result, trajopt, prog)
 
+
 def run_traj_opt_towards_pick(goal_name, X_WGStart, X_WGgoal, plant, plant_context, scene_graph = None):
     num_q = plant.num_positions()
     num_c = 4
@@ -274,8 +274,8 @@ def run_traj_opt_towards_pick(goal_name, X_WGStart, X_WGgoal, plant, plant_conte
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
     q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.02, 0.02, 0.05])
-    #prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
-    #prog.AddQuadraticErrorCost(inf0, q_goal, trajopt.control_points()[:, -1])
+
+    prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
 
     q_guess = np.linspace(q0.reshape((num_q, 1)),
                           q_goal.reshape((num_q, 1)),
@@ -319,7 +319,9 @@ def run_traj_opt_towards_preplace(goal_name, X_WGStart, X_WGgoal, plant, plant_c
     prog = trajopt.get_mutable_prog()
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
-    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.15, 0.15, 0.15])
+    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.12, 0.12, 0.12])
+
+    prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
     q_guess = np.linspace(q0.reshape((num_q, 1)),
                           q_goal.reshape((num_q, 1)),
                           trajopt.num_control_points()
@@ -377,6 +379,8 @@ def run_traj_opt_towards_place(goal_name, X_WGStart, X_WGgoal, plant, plant_cont
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
     q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.1, 0.1, 0.1])
+    prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
+
     q_guess = np.linspace(q0.reshape((num_q, 1)),
                           q_goal.reshape((num_q, 1)),
                           trajopt.num_control_points()
@@ -420,6 +424,8 @@ def run_traj_opt_towards_postplace(goal_name, X_WGStart, X_WGgoal, plant, plant_
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
     q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.2, 0.2, 0.2])
+    prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
+
     q_guess = np.linspace(q0.reshape((num_q, 1)),
                           q_goal.reshape((num_q, 1)),
                           trajopt.num_control_points()
@@ -565,6 +571,17 @@ def solve_for_picking_trajectories(scene_graph, plant, X_G, X_O, plant_context, 
     for a, b in zip(start_frames_with_placeholders, [0.] + ends):
         times[a] = b
     wsg_trajectory = make_wsg_command_trajectory(times)
+
+    prev_traj = None
+    for i, t in enumerate(stacked_trajectores[:-1]):
+        if t is None:
+            continue
+        if 0 != i:
+            beg_vec = t.value(t.start_time()).T
+            print(i, 'starts with', beg_vec, 'having loss at ', np.linalg.norm(prev_traj - beg_vec))
+
+        prev_traj = t.value(t.end_time()).T
+        print(i, '  ends with', prev_traj)
     return stacked_trajectores, wsg_trajectory
 
 def solve_for_iiwa_internal_trajectory_standalone(X_G, X_O):
@@ -600,4 +617,5 @@ def run_alt_main():
 
 
 if '__main__' == __name__:
+    np.set_printoptions(linewidth=160)
     run_alt_main()
