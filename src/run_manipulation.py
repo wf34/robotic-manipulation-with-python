@@ -37,15 +37,15 @@ from open_loop_controller import create_open_loop_controller
 from resource_loader import AddIiwa, AddWsg, get_resource, BRICK_GOAL_TRANSLATION
 from visualization_tools import AddMeshcatSphere
 
-#TIME_STEP=0.002 # finer
-TIME_STEP=0.007  # faster
+TIME_STEP=0.002 # finer
+#TIME_STEP=0.007  # faster
 
 
 def create_iiwa_controller(plant, iiwa, method):
     if 'global' == method:
-        params = [100, 15, 10]
+        params = [100, 25, 10]
     elif 'inv-kin' == method:
-        params = [100, 1, 20]
+        params = [100, 10, 10]
     kp, ki, kd = params
 
     num_iiwa_positions = plant.num_positions(iiwa)
@@ -93,8 +93,8 @@ def create_iiwa_controller(plant, iiwa, method):
 
 
 def create_wsg_position_desired_port(builder, plant, wsg):
-    wsg_controller = builder.AddSystem(SchunkWsgPositionController())
-    constant_force_limit = builder.AddSystem(ConstantVectorSource([40.]))
+    wsg_controller = builder.AddSystem(SchunkWsgPositionController(kp_command=2e+3))
+    constant_force_limit = builder.AddSystem(ConstantVectorSource([60.]))
     wsg_controller.set_name('wsg_controller')
 
     builder.Connect(plant.get_state_output_port(wsg),
@@ -123,7 +123,7 @@ def run_manipulation(method: str):
 
     brick_model = get_resource(plant, 'foam_brick')
     brick_body = plant.GetBodyByName('base_link', brick_model)
-    X_WB = RigidTransform(RotationMatrix.Identity(), [0.6, 0., 0.4085 + 0.15])
+    X_WB = RigidTransform(RotationMatrix.Identity(), [0.6, 0., 0.4085 + 0.143])
     plant.SetDefaultFreeBodyPose(brick_body, X_WB)
     plant.Finalize()
 

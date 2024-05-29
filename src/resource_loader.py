@@ -42,6 +42,7 @@ def AddWsg(plant,
     X_7G = RigidTransform(RollPitchYaw(np.pi / 2.0, 0, np.pi / 2.0), [0, 0, 0.114])
     plant.WeldFrames(plant.GetFrameByName('iiwa_link_7', iiwa_model_instance),
                      plant.GetFrameByName('body', gripper), X_7G)
+    plant.set_gravity_enabled(gripper, False)
     return gripper
 
 
@@ -63,6 +64,7 @@ def AddIiwa(plant, collision_model='no_collision'):
             joint.set_default_angle(q0[index])
             index += 1
 
+    plant.set_gravity_enabled(iiwa, False)
     return iiwa
 
 
@@ -76,4 +78,6 @@ def get_resource_path(resource_name: str) -> str:
 
 def get_resource(plant: MultibodyPlant, resource_name: str):
     resource_path = get_resource_path(resource_name)
-    return Parser(plant=plant).AddModels(resource_path)[0]
+    resource_model = Parser(plant=plant).AddModels(resource_path)[0]
+    plant.set_gravity_enabled(resource_model, False)
+    return resource_model
