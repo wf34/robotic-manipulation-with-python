@@ -118,9 +118,9 @@ def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None) \
     X_GgraspGpregrasp = RigidTransform([0, -0.2, 0.0])
     X_Ggrasp2Gpregrasp = RigidTransform([0, -0.35, 0.0])
 
-    X_Ggrasp3Gpregrasp = RigidTransform([-0.1, -0.25, 0.05])
-    X_Ggrasp4Gpregrasp = RigidTransform([-0.2, -0.28, -0.07])
-    X_Ggrasp5Gpregrasp = RigidTransform([-0.1, -0.30, -0.15])
+    X_Ggrasp3Gpregrasp = RigidTransform([0, -0.25, 0.05])
+    X_Ggrasp4Gpregrasp = RigidTransform([0, -0.28, -0.07])
+    X_Ggrasp5Gpregrasp = RigidTransform([0, -0.30, -0.15])
 
     X_G['pick'] = X_O['initial'].multiply(X_OGgrasp)
     X_G['prepick'] = X_G['pick'].multiply(X_GgraspGpregrasp)
