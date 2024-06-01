@@ -79,5 +79,4 @@ def get_resource_path(resource_name: str) -> str:
 def get_resource(plant: MultibodyPlant, resource_name: str):
     resource_path = get_resource_path(resource_name)
     resource_model = Parser(plant=plant).AddModels(resource_path)[0]
-    #plant.set_gravity_enabled(resource_model, False)
     return resource_model
