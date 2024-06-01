@@ -26,6 +26,7 @@ from resource_loader import AddIiwa, AddWsg, get_resource, BRICK_GOAL_TRANSLATIO
 from visualization_tools import AddMeshactProgressSphere, AddMeshcatSphere, AddMeshcatTriad
 
 TIME_STEP=0.007  #faster
+POSEPS = np.array([1e-2] * 7 + [0.] * 2)
 
 def PublishPositionTrajectores(trajectories, # for iiwa
                                wsg_trajectory,
@@ -41,7 +42,7 @@ def PublishPositionTrajectores(trajectories, # for iiwa
     visualizer_context = visualizer.GetMyContextFromRoot(root_context)
     visualizer.StartRecording(False)
 
-    trajectory_end_time = lambda t: 1.0 if not t else t.end_time()
+    trajectory_end_time = lambda t: 2.0 if not t else t.end_time()
     ends = list(itertools.accumulate(map(trajectory_end_time, trajectories)))
     overall_length = functools.reduce(lambda x, y: x + y, ends, 0)
     begins = [0.] + ends[:-1]
@@ -112,14 +113,15 @@ def create_diagram_without_controllers(meshcat = None):
     return diagram, scene_graph, plant, visualizer
 
 
-def handle_opt_result(result, trajopt, prog):
+def handle_opt_result(result, trajopt, prog, goal_name):
     if not result.is_success():
         print(dir(result))
         print(result.get_solver_id().name(), result.GetInfeasibleConstraintNames(prog), result.GetInfeasibleConstraints(prog))
-        assert False, "Trajectory optimization failed"
+        assert False, "Trajectory optimization towards {} has failed".format(goal_name)
     else:
-        print("Trajectory optimization succeeded")
-        return trajopt.ReconstructTrajectory(result)
+        r = trajopt.ReconstructTrajectory(result)
+        print("Trajectory optimization towards {} has succeeded, on interval <{:.2f}, {:.2f}>".format(goal_name, r.start_time(), r.end_time()))
+        return r
 
 
 def get_present_plant_position_with_inf(plant, plant_context, information=1., model_name='iiwa7'):
@@ -221,13 +223,13 @@ def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None) -> t
 
 def run_traj_opt_towards_prepick(goal_name, X_WGStart, X_WGgoal, plant, plant_context, scene_graph = None):
     num_q = plant.num_positions()
-    num_c = 15
+    num_c = 4
 
     trajopt = KinematicTrajectoryOptimization(num_q, num_c)
     prog = trajopt.get_mutable_prog()
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
-    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.2, 0.2, 0.2])
+    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.1, 0.1, 0.1])
     prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
 
     q_guess = np.linspace(q0.reshape((num_q, 1)),
@@ -262,7 +264,7 @@ def run_traj_opt_towards_prepick(goal_name, X_WGStart, X_WGgoal, plant, plant_co
     trajopt.AddPathVelocityConstraint(zero_vec, zero_vec, 1)
 
     result = Solve(prog)
-    return handle_opt_result(result, trajopt, prog)
+    return handle_opt_result(result, trajopt, prog, goal_name)
 
 
 def run_traj_opt_towards_pick(goal_name, X_WGStart, X_WGgoal, plant, plant_context, scene_graph = None):
@@ -273,7 +275,7 @@ def run_traj_opt_towards_pick(goal_name, X_WGStart, X_WGgoal, plant, plant_conte
     prog = trajopt.get_mutable_prog()
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
-    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.02, 0.02, 0.05])
+    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.02, 0.02, 0.02])
 
     prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
 
@@ -292,9 +294,14 @@ def run_traj_opt_towards_pick(goal_name, X_WGStart, X_WGgoal, plant, plant_conte
 
     plant_v_lower_limits = np.nan_to_num(plant.GetVelocityLowerLimits(), neginf=0) / 6.
     plant_v_upper_limits = np.nan_to_num(plant.GetVelocityUpperLimits(), posinf=0) / 6.
-    trajopt.AddVelocityBounds(plant_v_lower_limits, plant_v_upper_limits)
 
-    trajopt.AddDurationConstraint(3, 7)
+    #accel_bounds_vec = np.array([0.05]*7+[0.]*2)
+    #trajopt.AddAccelerationBounds(-accel_bounds_vec, accel_bounds_vec)
+
+
+    trajopt.AddPathPositionConstraint(q0 - POSEPS, q0 + POSEPS, 1e-3)
+
+    trajopt.AddDurationConstraint(2, 7)
 
     start_lim = 1e-2
     end_lim   = 0.01
@@ -309,17 +316,18 @@ def run_traj_opt_towards_pick(goal_name, X_WGStart, X_WGgoal, plant, plant_conte
     trajopt.AddPathVelocityConstraint(zero_vec, zero_vec, 1)
 
     result = Solve(prog)
-    return handle_opt_result(result, trajopt, prog)
+    return handle_opt_result(result, trajopt, prog, goal_name)
+
 
 def run_traj_opt_towards_preplace(goal_name, X_WGStart, X_WGgoal, plant, plant_context, scene_graph):
     num_q = plant.num_positions()
-    num_c = 4
+    num_c = 7
 
     trajopt = KinematicTrajectoryOptimization(num_q, num_c)
     prog = trajopt.get_mutable_prog()
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
-    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.12, 0.12, 0.12])
+    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.04, 0.04, 0.7])
 
     prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
     q_guess = np.linspace(q0.reshape((num_q, 1)),
@@ -352,6 +360,7 @@ def run_traj_opt_towards_preplace(goal_name, X_WGStart, X_WGgoal, plant, plant_c
     plant_v_upper_limits = np.nan_to_num(plant.GetVelocityUpperLimits(), posinf=0) / 3.
     trajopt.AddVelocityBounds(plant_v_lower_limits, plant_v_upper_limits)
 
+    trajopt.AddPathPositionConstraint(q0 - POSEPS, q0 + POSEPS, 1e-3)
     trajopt.AddDurationConstraint(2, 6)
 
     start_lim = 1e-2
@@ -367,17 +376,17 @@ def run_traj_opt_towards_preplace(goal_name, X_WGStart, X_WGgoal, plant, plant_c
     trajopt.AddPathVelocityConstraint(zero_vec, zero_vec, 1)
 
     result = Solve(prog)
-    return handle_opt_result(result, trajopt, prog)
+    return handle_opt_result(result, trajopt, prog, goal_name)
 
 
 def run_traj_opt_towards_place(goal_name, X_WGStart, X_WGgoal, plant, plant_context, scene_graph):
     num_q = plant.num_positions()
-    num_c = 5
+    num_c = 10
 
     trajopt = KinematicTrajectoryOptimization(num_q, num_c)
     prog = trajopt.get_mutable_prog()
 
-    q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
+    q0, inf0 = get_present_plant_position_with_inf(plant, plant_context, information=100)
     q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.1, 0.1, 0.1])
     prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
 
@@ -398,6 +407,7 @@ def run_traj_opt_towards_place(goal_name, X_WGStart, X_WGgoal, plant, plant_cont
     plant_v_upper_limits = np.nan_to_num(plant.GetVelocityUpperLimits(), posinf=0) / 3.
     trajopt.AddVelocityBounds(plant_v_lower_limits, plant_v_upper_limits)
 
+    trajopt.AddPathPositionConstraint(q0 - POSEPS, q0 + POSEPS, 1e-4)
     trajopt.AddDurationConstraint(1, 4)
 
     start_lim = 1e-2
@@ -413,7 +423,8 @@ def run_traj_opt_towards_place(goal_name, X_WGStart, X_WGgoal, plant, plant_cont
     trajopt.AddPathVelocityConstraint(zero_vec, zero_vec, 1)
 
     result = Solve(prog)
-    return handle_opt_result(result, trajopt, prog)
+    return handle_opt_result(result, trajopt, prog, goal_name)
+
 
 def run_traj_opt_towards_postplace(goal_name, X_WGStart, X_WGgoal, plant, plant_context, scene_graph = None):
     num_q = plant.num_positions()
@@ -443,6 +454,7 @@ def run_traj_opt_towards_postplace(goal_name, X_WGStart, X_WGgoal, plant, plant_
     plant_v_upper_limits = np.nan_to_num(plant.GetVelocityUpperLimits(), posinf=0) / 3.
     trajopt.AddVelocityBounds(plant_v_lower_limits, plant_v_upper_limits)
 
+    trajopt.AddPathPositionConstraint(q0 - POSEPS, q0 + POSEPS, 1e-4)
     trajopt.AddDurationConstraint(1, 4)
 
     start_lim = 1e-2
@@ -458,7 +470,7 @@ def run_traj_opt_towards_postplace(goal_name, X_WGStart, X_WGgoal, plant, plant_
     trajopt.AddPathVelocityConstraint(zero_vec, zero_vec, 1)
 
     result = Solve(prog)
-    return handle_opt_result(result, trajopt, prog)
+    return handle_opt_result(result, trajopt, prog, goal_name)
 
 
 def run_traj_opt_towards_final(goal_name, X_WGStart, X_WGgoal, plant, plant_context, scene_graph = None):
@@ -468,8 +480,8 @@ def run_traj_opt_towards_final(goal_name, X_WGStart, X_WGgoal, plant, plant_cont
     trajopt = KinematicTrajectoryOptimization(num_q, num_c)
     prog = trajopt.get_mutable_prog()
 
-    q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
-    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.1, 0.1, 0.1])
+    q0, inf0 = get_present_plant_position_with_inf(plant, plant_context, information=100)
+    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.05, 0.05, 0.05])
     q_guess = np.linspace(q0.reshape((num_q, 1)),
                           q_goal.reshape((num_q, 1)),
                           trajopt.num_control_points()
@@ -487,6 +499,7 @@ def run_traj_opt_towards_final(goal_name, X_WGStart, X_WGgoal, plant, plant_cont
     plant_v_upper_limits = np.nan_to_num(plant.GetVelocityUpperLimits(), posinf=0) / 3.
     trajopt.AddVelocityBounds(plant_v_lower_limits, plant_v_upper_limits)
 
+    trajopt.AddPathPositionConstraint(q0 - POSEPS, q0 + POSEPS, 1e-4)
     trajopt.AddDurationConstraint(1, 4)
 
     start_lim = 1e-2
@@ -502,20 +515,20 @@ def run_traj_opt_towards_final(goal_name, X_WGStart, X_WGgoal, plant, plant_cont
     trajopt.AddPathVelocityConstraint(zero_vec, zero_vec, 1)
 
     result = Solve(prog)
-    return handle_opt_result(result, trajopt, prog)
+    return handle_opt_result(result, trajopt, prog, goal_name)
 
 
 def make_wsg_command_trajectory(times) -> Trajectory:
     opened = np.array([0.107]);
-    closed = np.array([0.06]);
+    closed = np.array([0.0]);
     traj_wsg = PiecewisePolynomial.FirstOrderHold([times['initial'], times['prepick']],
                                                   np.hstack([[opened], [opened]]))
-    traj_wsg.AppendFirstOrderSegment(times['pick'], opened)
-    traj_wsg.AppendFirstOrderSegment(times['pick_close'], closed)
-    traj_wsg.AppendFirstOrderSegment(times['place'], closed)
-    traj_wsg.AppendFirstOrderSegment(times['place_open'], opened)
-    traj_wsg.AppendFirstOrderSegment(times['postplace'], opened)
-    traj_wsg.AppendFirstOrderSegment(times['final'], opened)
+
+    for n, v in zip(['pick', 'pick_close', 'place', 'place_open', 'postplace', 'final'],
+                    [opened, closed,       closed,  opened,        opened,     opened]):
+        if n in times:
+            traj_wsg.AppendFirstOrderSegment(times[n], v)
+
     return traj_wsg
 
 
@@ -555,6 +568,8 @@ def solve_for_picking_trajectories(scene_graph, plant, X_G, X_O, plant_context, 
         X_WGStart = X_WGcurrent_getter()
         X_WGgoal = X_G[goal_name]
 
+        if goal_name not in funcs:
+            break
         interm_traj = funcs[goal_name](goal_name, X_WGStart, X_WGgoal, plant, plant_context, scene_graph)
         if not interm_traj:
             break
