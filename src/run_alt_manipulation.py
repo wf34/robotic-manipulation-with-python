@@ -12,8 +12,8 @@ import numpy as np
 from pydrake.math import RigidTransform, RotationMatrix, RollPitchYaw
 from pydrake.all import (AddMultibodyPlantSceneGraph, BsplineTrajectory, Trajectory, GeometryInstance,
                          DiagramBuilder, KinematicTrajectoryOptimization, LinearConstraint,
-                         MeshcatVisualizer, MeshcatVisualizerParams,
-                         Parser, PositionConstraint, OrientationConstraint, DistanceConstraint,
+                         MeshcatVisualizer, MeshcatVisualizerParams, PointToPointDistanceConstraint,
+                         Parser, PositionConstraint, OrientationConstraint,
                          Rgba, RigidTransform, Role, Solve, Sphere, PiecewisePolynomial,
                          Meshcat, FindResourceOrThrow, RevoluteJoint, RollPitchYaw, GetDrakePath, MeshcatCone,
                          ConstantVectorSource)
@@ -27,6 +27,9 @@ from visualization_tools import AddMeshactProgressSphere, AddMeshcatSphere, AddM
 
 TIME_STEP=0.007  #faster
 POSEPS = np.array([1e-2] * 7 + [0.] * 2)
+
+def get_shelf_offset():
+    return np.array([-.15, 0.15, 0.13115])
 
 def PublishPositionTrajectores(trajectories, # for iiwa
                                wsg_trajectory,
@@ -135,8 +138,8 @@ def get_present_plant_position_with_inf(plant, plant_context, information=1., mo
     return plant_0, plant_inf
 
 
-def get_torque_coords(plant, X_WGgoal, q0, upperbound):
-    lowerbound = np.array(upperbound) * -1.
+def get_torque_coords(plant, X_WGgoal, q0, upperbound_m, upperbound_deg):
+    lowerbound_m = np.array(upperbound_m) * -1.
     ik = inverse_kinematics.InverseKinematics(plant)
     q_variables = ik.q()
     prog = ik.prog()
@@ -146,14 +149,14 @@ def get_torque_coords(plant, X_WGgoal, q0, upperbound):
         frameA=plant.GetFrameByName("body"),
         frameB=plant.world_frame(),
         p_BQ=X_WGgoal.translation(),
-        p_AQ_lower=lowerbound,
-        p_AQ_upper=upperbound)
+        p_AQ_lower=lowerbound_m,
+        p_AQ_upper=upperbound_m)
     ik.AddOrientationConstraint(
         frameAbar=plant.GetFrameByName("body"),
         R_AbarA=X_WGgoal.rotation().inverse(),
         frameBbar=plant.world_frame(),
         R_BbarB=RotationMatrix(),
-        theta_bound=np.radians(3))
+        theta_bound=np.radians(upperbound_deg))
     result = Solve(prog)
     assert result.is_success()
     return result.GetSolution(q_variables)
@@ -198,7 +201,7 @@ def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None) -> t
     X_OGgrasp = X_GgraspO.inverse()
 
     X_GgraspGpregrasp = RigidTransform([-0.1, -0.2, 0.0])
-    X_GgraspGpregrasp2 = RigidTransform([-0.1, -0.3, 0.0])
+    X_GgraspGpregrasp2 = RigidTransform([-0.1, -0.3, -0.1])
     X_GgraspGpregrasp3 = RigidTransform([0.1, -0.2, 0.1])
 
     X_G['pick'] = X_O['initial'].multiply(X_OGgrasp)
@@ -213,7 +216,7 @@ def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None) -> t
         AddMeshcatTriad(meshcat, 'X_Ginitial', X_PT=X_G['initial'])
         AddMeshcatTriad(meshcat, 'X_Gprepick', X_PT=X_G['prepick'])
         AddMeshcatTriad(meshcat, 'X_Gpick', X_PT=X_G['pick'])
-        AddMeshcatTriad(meshcat, 'X_Gpick', X_PT=X_G['preplace'])
+        AddMeshcatTriad(meshcat, 'X_Gpreplace', X_PT=X_G['preplace'])
         AddMeshcatTriad(meshcat, 'X_Gplace', X_PT=X_G['place'])
         AddMeshcatTriad(meshcat, 'X_Gpostplace', X_PT=X_G['postplace'])
         AddMeshcatTriad(meshcat, 'X_Gfinal', X_PT=X_G['final'])
@@ -229,7 +232,7 @@ def run_traj_opt_towards_prepick(goal_name, X_WGStart, X_WGgoal, plant, plant_co
     prog = trajopt.get_mutable_prog()
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
-    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.1, 0.1, 0.1])
+    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.1]*3, 3)
     prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
 
     q_guess = np.linspace(q0.reshape((num_q, 1)),
@@ -249,7 +252,7 @@ def run_traj_opt_towards_prepick(goal_name, X_WGStart, X_WGgoal, plant, plant_co
     plant_v_upper_limits = np.nan_to_num(plant.GetVelocityUpperLimits(), posinf=0) / 3.
     trajopt.AddVelocityBounds(plant_v_lower_limits, plant_v_upper_limits)
 
-    trajopt.AddDurationConstraint(3, 5)
+    trajopt.AddDurationConstraint(3, 6)
 
     start_lim = 1e-2
     end_lim   = 0.1
@@ -275,7 +278,7 @@ def run_traj_opt_towards_pick(goal_name, X_WGStart, X_WGgoal, plant, plant_conte
     prog = trajopt.get_mutable_prog()
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
-    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.02, 0.02, 0.02])
+    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.02, 0.02, 0.02], 3.)
 
     prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
 
@@ -327,7 +330,7 @@ def run_traj_opt_towards_preplace(goal_name, X_WGStart, X_WGgoal, plant, plant_c
     prog = trajopt.get_mutable_prog()
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
-    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.04, 0.04, 0.7])
+    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.04, 0.04, 0.7], 3.)
 
     prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
     q_guess = np.linspace(q0.reshape((num_q, 1)),
@@ -336,18 +339,7 @@ def run_traj_opt_towards_preplace(goal_name, X_WGStart, X_WGgoal, plant, plant_c
         )[:, :, 0].T
     trajopt.SetInitialGuess(BsplineTrajectory(trajopt.basis(), q_guess))
 
-    #finger_frame = scene_graph.model_inspector().GetGeometryIdByName(
-    #        plant.GetBodyFrameIdOrThrow(
-    #            plant.GetBodyByName("left_finger").index()),
-    #        Role.kProximity, "Schunk_Gripper::collision")
 
-    #shelf_frame = scene_graph.model_inspector().GetGeometryIdByName(
-    #        plant.GetBodyFrameIdOrThrow(
-    #            plant.GetBodyByName("top_and_bottom").index()),
-    #        Role.kProximity, "shelves::top")
-
-    #distance_constraint = DistanceConstraint(plant, (shelf_frame, finger_frame), plant_context, 0.1, 100)
-    #trajopt.AddPathPositionConstraint(distance_constraint, 0.7)
 
     trajopt.AddDurationCost(1.0)
     trajopt.AddPathLengthCost(2.0)
@@ -364,7 +356,7 @@ def run_traj_opt_towards_preplace(goal_name, X_WGStart, X_WGgoal, plant, plant_c
     trajopt.AddDurationConstraint(2, 6)
 
     start_lim = 1e-2
-    end_lim   = 0.1
+    end_lim   = 0.12
 
     constrain_position(plant, trajopt, X_WGStart, 0, plant_context,
                        with_orientation=True, pos_limit=start_lim)
@@ -387,7 +379,7 @@ def run_traj_opt_towards_place(goal_name, X_WGStart, X_WGgoal, plant, plant_cont
     prog = trajopt.get_mutable_prog()
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context, information=100)
-    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.1, 0.1, 0.1])
+    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.1, 0.1, 0.1], 3.)
     prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
 
     q_guess = np.linspace(q0.reshape((num_q, 1)),
@@ -408,7 +400,16 @@ def run_traj_opt_towards_place(goal_name, X_WGStart, X_WGgoal, plant, plant_cont
     trajopt.AddVelocityBounds(plant_v_lower_limits, plant_v_upper_limits)
 
     trajopt.AddPathPositionConstraint(q0 - POSEPS, q0 + POSEPS, 1e-4)
-    trajopt.AddDurationConstraint(1, 4)
+    trajopt.AddDurationConstraint(2, 4)
+
+    finger_frame = plant.GetBodyByName('body').body_frame()
+    shelf_frame = plant.GetBodyByName('shelves_body').body_frame()
+
+    another_dist_c = PointToPointDistanceConstraint(plant,
+                                                    finger_frame, np.array([0,0,0]),
+                                                    shelf_frame, get_shelf_offset(),
+                                                    0.1, 100, plant_context)
+    trajopt.AddPathPositionConstraint(another_dist_c, 0.5)
 
     start_lim = 1e-2
     end_lim   = 0.05
@@ -434,7 +435,7 @@ def run_traj_opt_towards_postplace(goal_name, X_WGStart, X_WGgoal, plant, plant_
     prog = trajopt.get_mutable_prog()
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context)
-    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.2, 0.2, 0.2])
+    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.2, 0.2, 0.2], 3.)
     prog.AddQuadraticErrorCost(inf0, q0, trajopt.control_points()[:, 0])
 
     q_guess = np.linspace(q0.reshape((num_q, 1)),
@@ -481,7 +482,7 @@ def run_traj_opt_towards_final(goal_name, X_WGStart, X_WGgoal, plant, plant_cont
     prog = trajopt.get_mutable_prog()
 
     q0, inf0 = get_present_plant_position_with_inf(plant, plant_context, information=100)
-    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.05, 0.05, 0.05])
+    q_goal = get_torque_coords(plant, X_WGgoal, q0, [0.05, 0.05, 0.05], 3.)
     q_guess = np.linspace(q0.reshape((num_q, 1)),
                           q_goal.reshape((num_q, 1)),
                           trajopt.num_control_points()
@@ -544,15 +545,6 @@ def solve_for_picking_trajectories(scene_graph, plant, X_G, X_O, plant_context, 
 
     X_G = make_gripper_frames(X_G, X_O, meshcat)
     goal_frames = ['prepick', 'pick', 'preplace', 'place', 'postplace', 'final']
-
-    names = {
-        'prepick' : 'prepick from initial',
-        'pick' : 'pick from prepick',
-        'preplace': 'preplace from pick',
-        'place' : 'place from preplace',
-        'postplace' : 'postplace from place',
-        'final': 'final from postplace',
-    }
 
     funcs = {
         'prepick': run_traj_opt_towards_prepick,
