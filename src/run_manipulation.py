@@ -45,7 +45,7 @@ def create_iiwa_controller(plant, iiwa, method):
     if 'global' == method:
         params = [100, 25, 10]
     elif 'inv-kin' == method:
-        params = [100, 10, 10]
+        params = [100, 1, 40]
     kp, ki, kd = params
 
     num_iiwa_positions = plant.num_positions(iiwa)

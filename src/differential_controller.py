@@ -49,7 +49,6 @@ def make_wsg_command_trajectory(times):
     traj_wsg_command.AppendFirstOrderSegment(times['pick_end'], closed)
     traj_wsg_command.AppendFirstOrderSegment(times['postpick'], closed)
     traj_wsg_command.AppendFirstOrderSegment(times['midway'], closed)
-    traj_wsg_command.AppendFirstOrderSegment(times['midway2'], closed)
     traj_wsg_command.AppendFirstOrderSegment(times['preplace'], closed)
     traj_wsg_command.AppendFirstOrderSegment(times['place_start'], closed)
     traj_wsg_command.AppendFirstOrderSegment(times['place_end'], opened)
@@ -104,8 +103,8 @@ def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None) \
     #    - `times` is a dict of moments (since the simulation start) when those gripper locations
     #       must be reached by the control
 
-    p_GgraspO = [0.04, 0.05, -0.03]
-    p_Ggrasp2O = [0., 0.03, 0.03]
+    p_GgraspO = [-0.015, 0.02, -0.03]
+    p_Ggrasp2O = [0, 0.03, 0.03]
 
     R_GgraspO = RotationMatrix.MakeZRotation(np.pi/2.0)
     R_Ggrasp2O = RotationMatrix.MakeZRotation(-np.pi/2.0)
@@ -118,24 +117,21 @@ def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None) \
     X_GgraspGpregrasp = RigidTransform([0, -0.2, 0.0])
     X_Ggrasp2Gpregrasp = RigidTransform([0, -0.35, 0.0])
 
-    X_Ggrasp3Gpregrasp = RigidTransform([0, -0.25, 0.05])
-    X_Ggrasp4Gpregrasp = RigidTransform([0, -0.28, -0.07])
-    X_Ggrasp5Gpregrasp = RigidTransform([0, -0.30, -0.15])
+    X_Ggrasp3Gpregrasp = RigidTransform([.2, -0.1, 0.])
+    X_Ggrasp4Gpregrasp = RigidTransform([.13, -0.13, -0.1])
+
+    #X_Ggrasp5Gpregrasp = RigidTransform([0, -0.30, -0.15])
 
     X_G['pick'] = X_O['initial'].multiply(X_OGgrasp)
     X_G['prepick'] = X_G['pick'].multiply(X_GgraspGpregrasp)
     X_G['postpick'] = X_G['pick'].multiply(X_Ggrasp3Gpregrasp)
 
     X_G['midway'] = X_G['pick'].multiply(X_Ggrasp4Gpregrasp)
-    X_G['midway2'] = X_G['pick'].multiply(X_Ggrasp5Gpregrasp)
 
     X_G['place'] = X_O['goal'].multiply(X_Ggrasp2O)
     X_G['preplace'] = X_G['place'].multiply(X_Ggrasp2Gpregrasp)
     X_G['postplace'] = X_G['preplace']
     X_G['final'] = X_G['initial']
-
-    # I'll interpolate a halfway orientation by converting to axis angle and halving the angle.
-    X_GpickGplace = X_G['pick'].inverse().multiply(X_G['place'])
 
     # Now let's set the timing
     times = {'initial': 0}
@@ -152,8 +148,7 @@ def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None) \
     times['postpick'] = times['pick_end'] + 6.0
 
     times['midway'] = times['postpick'] + 4.5
-    times['midway2'] = times['midway'] + 6.5
-    times['preplace'] = times['midway2'] + 4.5
+    times['preplace'] = times['midway'] + 4.5
       
     times['place_start'] = times['preplace'] + 2.0
     X_G['place_start'] = X_G['place']
@@ -164,7 +159,6 @@ def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None) \
     times['postplace'] = times['place_end'] + 4.0
     times['final'] = times['postplace'] + 10.0
 
-    print(times['midway'], times['midway2'], times['preplace'])
 
     if meshcat:
         #AddMeshcatTriad(meshcat, 'X_Ginitial', X_PT=X_G['initial'])
@@ -174,11 +168,10 @@ def make_gripper_frames(X_G, X_O, meshcat: typing.Optional[Meshcat] = None) \
         AddMeshcatTriad(meshcat, 'X_Gpostpick', X_PT=X_G['postpick'])
 
         AddMeshcatTriad(meshcat, 'X_Gmidway', X_PT=X_G['midway'])
-        AddMeshcatTriad(meshcat, 'X_Gmidway2', X_PT=X_G['midway2'])
 
         AddMeshcatTriad(meshcat, 'X_Gpreplace', X_PT=X_G['preplace'])
-        #AddMeshcatTriad(meshcat, 'X_Gplace', X_PT=X_G['place'])
-        #AddMeshcatTriad(meshcat, 'X_Gpostlace', X_PT=X_G['postplace'])
+        AddMeshcatTriad(meshcat, 'X_Gplace', X_PT=X_G['place'])
+        AddMeshcatTriad(meshcat, 'X_Gpostlace', X_PT=X_G['postplace'])
 
     verify_frames(X_G, times)
     return X_G, times
