@@ -48,23 +48,27 @@ def AddMeshcatSphere(meshcat: Meshcat, path: str, translation: typing.List[float
     )
 
 
-def AddMeshactProgressSphere(meshcat, current_time, index, plant, root_context):
+def AddMeshactProgressSphere(meshcat, current_time, index, plant, root_context, translation=None):
     plant_context = plant.GetMyContextFromRoot(root_context)
 
-    red = np.array([1., 0., 0., 1.])
-    blue = np.array([0., 0., 1., 1.])
-    green = np.array([0., 1., 0., 1.])
-    orange = np.array([1., .647, 0., 1.])
-    purple = np.array([.502, .0, .502, 1.])
-    yellow = np.array([1., 1., 0., 1.])
-    cyan = np.array([0., 1., 1., 1.])
-    brown = np.array([0.502, .251, 0., 1.])
+    red = np.array([1., 0., 0., 1.])        # initial, to place_end
+    blue = np.array([0., 0., 1., 1.])       # to prepick, to postplace
+    green = np.array([0., 1., 0., 1.])      # to pick,    to final
+    orange = np.array([1., .647, 0., 1.])   # to pick_end
+    purple = np.array([.502, .0, .502, 1.]) # to postpick
+    yellow = np.array([1., 1., 0., 1.])     # to midway
+    cyan = np.array([0., 1., 1., 1.])       # to preplace
+    brown = np.array([0.502, .251, 0., 1.]) # to place
     color = [red, blue, green, orange, purple, yellow, cyan, brown]
     i = index % len(color)
 
     root_context.SetTime(current_time)
 
-    X_W_G = plant.EvalBodyPoseInWorld(plant_context, plant.GetBodyByName("body"))
     curr_point = 'point_{}'.format(current_time)
+    if translation is None:
+        X_W_G = plant.EvalBodyPoseInWorld(plant_context, plant.GetBodyByName("body"))
+    else:
+        X_W_G = RigidTransform(RotationMatrix.Identity(), translation)
+
     meshcat.SetObject(curr_point, Sphere(0.01), rgba=Rgba(*color[i].tolist()))
     meshcat.SetTransform(curr_point, X_W_G)
