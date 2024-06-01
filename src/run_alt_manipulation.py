@@ -94,7 +94,7 @@ def create_diagram_without_controllers(meshcat = None):
 
     brick_model = get_resource(plant, 'foam_brick')
     brick_body = plant.GetBodyByName('base_link', brick_model)
-    X_WB = RigidTransform(RotationMatrix.Identity(), [0.6, 0., 0.4085 + 0.15])
+    X_WB = RigidTransform(RotationMatrix.Identity(), [0.6, 0., 0.4085 + 0.143])
     plant.WeldFrames(
             plant.world_frame(),
             plant.GetFrameByName('base_link', brick_model),
